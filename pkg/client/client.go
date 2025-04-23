@@ -140,10 +140,10 @@ func (c *Client) connectUDP(ctx context.Context) error {
 func (c *Client) handleConnection(conn io.ReadWriteCloser) error {
 	// verbose connection case
 	if c.config.Verbose {
-		conn = &verboseConn{
-			conn:    conn,
-			verbose: true,
-			role:    "client",
+		conn = &common.VerboseConn{
+			Conn:    conn,
+			Verbose: true,
+			Role:    "client",
 		}
 	}
 	// Copy stdin to connection

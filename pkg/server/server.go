@@ -163,10 +163,10 @@ func (s *Server) startUDP(ctx context.Context) error {
 
 func (s *Server) handleConnection(conn io.ReadWriteCloser) {
 	if s.config.Verbose {
-		conn = &verboseConn{
-			conn:    conn,
-			verbose: true,
-			role:    "server",
+		conn = &common.VerboseConn{
+			Conn:    conn,
+			Verbose: true,
+			Role:    "server",
 		}
 	}
 	defer conn.Close()
