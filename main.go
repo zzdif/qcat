@@ -1,21 +1,97 @@
 package main
 
 import (
-	"fmt"
-	"os"
-	"os/exec"
+   "context"
+   "fmt"
+   "os"
+
+   "github.com/spf13/cobra"
+
+   "qcat/pkg/client"
+   "qcat/pkg/common"
+   "qcat/pkg/server"
 )
 
 func main() {
-	// Execute qcat via go run, forwarding any arguments
-	args := append([]string{"run", "./cmd/qcat"}, os.Args[1:]...)
-	cmd := exec.Command("go", args...)
-	cmd.Stdin = os.Stdin
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	
-	if err := cmd.Run(); err != nil {
-		fmt.Fprintf(os.Stderr, "Error running qcat: %v\n", err)
-		os.Exit(1)
-	}
+   rootCmd := &cobra.Command{
+       Use:   "qcat",
+       Short: "netcat alternative with QUIC, TCP and UDP support",
+       Long: `qcat is a networking utility that reads and writes data across network connections.
+It supports QUIC (default), TCP, and UDP protocols and can be used for learning and
+analyzing network traffic.
+
+Examples:
+  qcat listen -l :8000
+  qcat connect -c example.com:8000 -p tcp`,
+       Run: func(cmd *cobra.Command, args []string) {
+           _ = cmd.Help()
+       },
+   }
+
+   var (
+       proto       string
+       listenAddr  string
+       connectAddr string
+       verbose     bool
+   )
+
+   rootCmd.PersistentFlags().
+       StringVarP(&proto, "protocol", "p", "quic", "Protocol to use: quic, tcp, or udp")
+   rootCmd.PersistentFlags().
+       BoolVarP(&verbose, "verbose", "v", false, "Verbose output")
+
+   listenCmd := &cobra.Command{
+       Use:   "listen",
+       Short: "Start qcat in listen (server) mode",
+       Long:  `Start qcat in listen mode, waiting for incoming connections.
+
+Examples:
+  qcat listen -l :8000
+  qcat listen -l :8000 -p tcp`,
+       Run: func(cmd *cobra.Command, args []string) {
+           config := common.Config{
+               Protocol: common.Protocol(proto),
+               Address:  listenAddr,
+               Verbose:  verbose,
+           }
+           srv := server.New(config)
+           if err := srv.Start(context.Background()); err != nil {
+               fmt.Fprintf(os.Stderr, "Error starting server: %v\n", err)
+               os.Exit(1)
+           }
+       },
+   }
+   listenCmd.Flags().
+       StringVarP(&listenAddr, "listen", "l", ":8000", "Address to listen on (format: [host]:port)")
+
+   connectCmd := &cobra.Command{
+       Use:   "connect",
+       Short: "Connect to a remote host",
+       Long:  `Connect to a remote host using specified protocol.
+
+Examples:
+  qcat connect -c example.com:8000
+  qcat connect -c example.com:8000 -p udp`,
+       Run: func(cmd *cobra.Command, args []string) {
+           config := common.Config{
+               Protocol: common.Protocol(proto),
+               Address:  connectAddr,
+               Verbose:  verbose,
+           }
+           cli := client.New(config)
+           if err := cli.Connect(context.Background()); err != nil {
+               fmt.Fprintf(os.Stderr, "Error connecting to server: %v\n", err)
+               os.Exit(1)
+           }
+       },
+   }
+   connectCmd.Flags().
+       StringVarP(&connectAddr, "connect", "c", "localhost:8000", "Address to connect to (format: host:port)")
+
+   rootCmd.AddCommand(listenCmd, connectCmd)
+
+   if err := rootCmd.Execute(); err != nil {
+       fmt.Fprintln(os.Stderr, err)
+       os.Exit(1)
+   }
 }
