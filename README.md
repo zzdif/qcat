@@ -39,6 +39,13 @@ go build -o qcat
 ./qcat listen -l :8000 -p udp
 ```
 
+### Idle Timeout (QUIC)
+Use the `--idle-timeout` flag to specify a custom QUIC idle timeout (duration).
+```shell
+# Listen with custom QUIC idle timeout (e.g., 2 minutes)
+./qcat listen -l :8000 --idle-timeout 2m
+```
+
 ### Connect mode (client)
 
 ```shell

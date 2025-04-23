@@ -1,5 +1,7 @@
 package common
 
+import "time"
+
 // Protocol represents network protocol type
 type Protocol string
 
@@ -22,4 +24,6 @@ type Config struct {
 
 	// Verbose output
 	Verbose bool
+   // IdleTimeout is the QUIC idle timeout (duration). Zero means use default.
+	IdleTimeout time.Duration
 }
