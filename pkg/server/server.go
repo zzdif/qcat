@@ -24,6 +24,36 @@ func New(config common.Config) *Server {
 	}
 }
 
+// udpConnWrapper wraps a UDP connection to implement io.ReadWriteCloser for interactive sessions.
+// It records the last client address seen on Read and writes to that address on Write.
+type udpConnWrapper struct {
+	conn       *net.UDPConn
+	clientAddr *net.UDPAddr
+}
+
+// Read reads a datagram, stores the client address, and returns the payload.
+func (u *udpConnWrapper) Read(p []byte) (int, error) {
+	n, addr, err := u.conn.ReadFromUDP(p)
+	if err != nil {
+		return n, err
+	}
+	u.clientAddr = addr
+	return n, nil
+}
+
+// Write sends data to the last known client address.
+func (u *udpConnWrapper) Write(p []byte) (int, error) {
+	if u.clientAddr == nil {
+		return 0, fmt.Errorf("no UDP client address to write to")
+	}
+	return u.conn.WriteToUDP(p, u.clientAddr)
+}
+
+// Close closes the underlying UDP connection.
+func (u *udpConnWrapper) Close() error {
+	return u.conn.Close()
+}
+
 // Start starts the server
 func (s *Server) Start(ctx context.Context) error {
 	switch s.config.Protocol {
@@ -43,26 +73,41 @@ func (s *Server) startQUIC(ctx context.Context) error {
 		log.Printf("Starting QUIC server on %s", s.config.Address)
 	}
 
-	listener, err := quic.ListenAddr(s.config.Address, generateTLSConfig(), nil)
+	// Generate TLS configuration
+	tlsCfg, err := common.GenerateTLSConfig()
+	if err != nil {
+		return fmt.Errorf("failed to generate TLS config: %v", err)
+	}
+	listener, err := quic.ListenAddr(s.config.Address, tlsCfg, nil)
 	if err != nil {
 		return fmt.Errorf("failed to start QUIC server: %v", err)
 	}
 	defer listener.Close()
 
-	for {
-		conn, err := listener.Accept(ctx)
-		if err != nil {
-			return fmt.Errorf("failed to accept connection: %v", err)
-		}
-
-		stream, err := conn.AcceptStream(ctx)
-		if err != nil {
-			log.Printf("Failed to accept stream: %v", err)
-			continue
-		}
-
-		go s.handleConnection(stream)
+	// Accept a single QUIC connection
+	conn, err := listener.Accept(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to accept connection: %v", err)
 	}
+	if s.config.Verbose {
+		log.Printf("Accepted QUIC connection from %s", conn.RemoteAddr())
+	}
+
+	// Accept a bidirectional stream
+	stream, err := conn.AcceptStream(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to accept stream: %v", err)
+	}
+	if s.config.Verbose {
+		log.Printf("Accepted QUIC stream %d", stream.StreamID())
+	}
+
+	// Handle the stream until stdin EOF or remote close
+	s.handleConnection(stream)
+
+	// Close QUIC connection gracefully
+	_ = conn.CloseWithError(0, "")
+	return nil
 }
 
 func (s *Server) startTCP(ctx context.Context) error {
@@ -76,14 +121,18 @@ func (s *Server) startTCP(ctx context.Context) error {
 	}
 	defer listener.Close()
 
-	for {
-		conn, err := listener.Accept()
-		if err != nil {
-			return fmt.Errorf("failed to accept connection: %v", err)
-		}
-
-		go s.handleConnection(conn)
+	// Accept a single TCP connection
+	conn, err := listener.Accept()
+	if err != nil {
+		return fmt.Errorf("failed to accept connection: %v", err)
 	}
+	if s.config.Verbose {
+		log.Printf("Accepted TCP connection from %s", conn.RemoteAddr())
+	}
+
+	// Handle connection until stdin EOF or remote close
+	s.handleConnection(conn)
+	return nil
 }
 
 func (s *Server) startUDP(ctx context.Context) error {
@@ -100,28 +149,10 @@ func (s *Server) startUDP(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to start UDP server: %v", err)
 	}
-	defer conn.Close()
-
-	// Simple handling for UDP (note: UDP is connectionless)
-	buffer := make([]byte, 1024)
-	for {
-		n, clientAddr, err := conn.ReadFromUDP(buffer)
-		if err != nil {
-			return fmt.Errorf("error reading from UDP: %v", err)
-		}
-
-		if s.config.Verbose {
-			log.Printf("Received %d bytes from %s", n, clientAddr)
-		}
-
-		os.Stdout.Write(buffer[:n])
-		
-		// Echo back what was received
-		_, err = conn.WriteToUDP(buffer[:n], clientAddr)
-		if err != nil {
-			log.Printf("Failed to write to UDP: %v", err)
-		}
-	}
+	// Wrap UDPConn for interactive session; handleConnection will close when done
+	wrapper := &udpConnWrapper{conn: conn}
+	s.handleConnection(wrapper)
+	return nil
 }
 
 func (s *Server) handleConnection(conn io.ReadWriteCloser) {
@@ -142,9 +173,4 @@ func (s *Server) handleConnection(conn io.ReadWriteCloser) {
 			log.Printf("Error writing to connection: %v", err)
 		}
 	}
-}
-
-// generateTLSConfig generates a TLS config for QUIC
-func generateTLSConfig() *quic.Config {
-	return &quic.Config{}
 }

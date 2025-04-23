@@ -7,7 +7,9 @@ import (
 )
 
 func main() {
-	cmd := exec.Command("go", "run", "./cmd/qcat")
+	// Execute qcat via go run, forwarding any arguments
+	args := append([]string{"run", "./cmd/qcat"}, os.Args[1:]...)
+	cmd := exec.Command("go", args...)
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
