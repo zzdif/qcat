@@ -94,7 +94,3 @@ This tool is primarily designed for learning purposes. You can use Wireshark to 
 ## License
 
 MIT
-
-## Contributing
-
-Contributions are welcome! Feel free to submit a Pull Request.
