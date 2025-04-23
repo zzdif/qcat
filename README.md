@@ -12,16 +12,31 @@ QCat is a modern alternative to netcat with QUIC, TCP, and UDP support. The prim
 
 ## Installation
 
+### Prerequisites
+
+- Go 1.18 or higher installed (https://golang.org/dl/)
+- Git (for building from source)
+
+### Install via go install
+
 ```shell
-go get -u github.com/yourusername/qcat
+go install github.com/zzdif/qcat@latest
 ```
 
-Or clone and build from source:
+Ensure `$GOPATH/bin` or `$HOME/go/bin` is in your `PATH` to use the installed binary.
+
+### Build from source
 
 ```shell
-git clone https://github.com/yourusername/qcat.git
+git clone https://github.com/zzdif/qcat.git
 cd qcat
 go build -o qcat
+```
+
+Optionally, move the binary to a directory in your `PATH`:
+
+```shell
+mv qcat $HOME/go/bin/
 ```
 
 ## Usage
