@@ -78,13 +78,13 @@ func (s *Server) startQUIC(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to generate TLS config: %v", err)
 	}
-   // Configure QUIC idle timeout if set
-   var quicCfg *quic.Config
-   if s.config.IdleTimeout > 0 {
-       // Set maximum idle timeout after handshake
-       quicCfg = &quic.Config{MaxIdleTimeout: s.config.IdleTimeout}
-   }
-   listener, err := quic.ListenAddr(s.config.Address, tlsCfg, quicCfg)
+	// Configure QUIC idle timeout if set
+	var quicCfg *quic.Config
+	if s.config.IdleTimeout > 0 {
+		// Set maximum idle timeout after handshake
+		quicCfg = &quic.Config{MaxIdleTimeout: s.config.IdleTimeout}
+	}
+	listener, err := quic.ListenAddr(s.config.Address, tlsCfg, quicCfg)
 	if err != nil {
 		return fmt.Errorf("failed to start QUIC server: %v", err)
 	}
@@ -162,6 +162,13 @@ func (s *Server) startUDP(ctx context.Context) error {
 }
 
 func (s *Server) handleConnection(conn io.ReadWriteCloser) {
+	if s.config.Verbose {
+		conn = &verboseConn{
+			conn:    conn,
+			verbose: true,
+			role:    "server",
+		}
+	}
 	defer conn.Close()
 
 	// Copy received data to stdout
