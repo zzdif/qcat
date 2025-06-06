@@ -1,3 +1,6 @@
+> [!WARNING]
+> This repository is my vibe code experiment and is not fully tested. Use at your own risk—features and behaviors may change or break unexpectedly. 
+
 # QCat
 
 QCat is a modern alternative to netcat with QUIC, TCP, and UDP support. The primary purpose is to learn about network programming in Go and analyze network packets via tools like Wireshark.
