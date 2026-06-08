@@ -7,6 +7,7 @@ import (
 	"log"
 	"net"
 	"os"
+	"sync"
 
 	"github.com/quic-go/quic-go"
 	"qcat/pkg/common"
@@ -28,6 +29,7 @@ func New(config common.Config) *Server {
 // It records the last client address seen on Read and writes to that address on Write.
 type udpConnWrapper struct {
 	conn       *net.UDPConn
+	mu         sync.RWMutex
 	clientAddr *net.UDPAddr
 }
 
@@ -37,16 +39,21 @@ func (u *udpConnWrapper) Read(p []byte) (int, error) {
 	if err != nil {
 		return n, err
 	}
+	u.mu.Lock()
 	u.clientAddr = addr
+	u.mu.Unlock()
 	return n, nil
 }
 
 // Write sends data to the last known client address.
 func (u *udpConnWrapper) Write(p []byte) (int, error) {
-	if u.clientAddr == nil {
+	u.mu.RLock()
+	addr := u.clientAddr
+	u.mu.RUnlock()
+	if addr == nil {
 		return 0, fmt.Errorf("no UDP client address to write to")
 	}
-	return u.conn.WriteToUDP(p, u.clientAddr)
+	return u.conn.WriteToUDP(p, addr)
 }
 
 // Close closes the underlying UDP connection.
