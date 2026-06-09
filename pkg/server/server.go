@@ -32,6 +32,7 @@ func New(config common.Config) *Server {
 // matching netcat-udp behavior.
 type udpConnWrapper struct {
 	conn       *net.UDPConn
+	mu         sync.Mutex
 	clientAddr *net.UDPAddr
 	mu         sync.Mutex
 }
@@ -50,9 +51,9 @@ func (u *udpConnWrapper) Read(p []byte) (int, error) {
 
 // Write sends data to the last known client address.
 func (u *udpConnWrapper) Write(p []byte) (int, error) {
-	u.mu.Lock()
+	u.mu.RLock()
 	addr := u.clientAddr
-	u.mu.Unlock()
+	u.mu.RUnlock()
 	if addr == nil {
 		return 0, fmt.Errorf("no UDP client address to write to")
 	}
