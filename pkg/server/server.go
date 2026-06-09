@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"io"
 	"log"
@@ -27,10 +28,13 @@ func New(config common.Config) *Server {
 
 // udpConnWrapper wraps a UDP connection to implement io.ReadWriteCloser for interactive sessions.
 // It records the last client address seen on Read and writes to that address on Write.
+// Note: responses always go to whichever client sent the most recent datagram,
+// matching netcat-udp behavior.
 type udpConnWrapper struct {
 	conn       *net.UDPConn
 	mu         sync.Mutex
 	clientAddr *net.UDPAddr
+	mu         sync.Mutex
 }
 
 // Read reads a datagram, stores the client address, and returns the payload.
@@ -61,6 +65,20 @@ func (u *udpConnWrapper) Close() error {
 	return u.conn.Close()
 }
 
+// halfCloser is implemented by connections that support half-close (e.g., *net.TCPConn).
+type halfCloser interface {
+	CloseWrite() error
+}
+
+// quicStreamHalfCloser wraps a quic stream to support half-close.
+type quicStreamHalfCloser struct {
+	stream quic.Stream
+}
+
+func (q *quicStreamHalfCloser) CloseWrite() error {
+	return q.stream.Close()
+}
+
 // Start starts the server
 func (s *Server) Start(ctx context.Context) error {
 	switch s.config.Protocol {
@@ -80,15 +98,21 @@ func (s *Server) startQUIC(ctx context.Context) error {
 		log.Printf("Starting QUIC server on %s", s.config.Address)
 	}
 
-	// Generate TLS configuration
-	tlsCfg, err := common.GenerateTLSConfig()
-	if err != nil {
-		return fmt.Errorf("failed to generate TLS config: %v", err)
+	// Generate or load TLS configuration
+	var tlsCfg *tls.Config
+	var err error
+	if s.config.TLSCert != "" && s.config.TLSKey != "" {
+		tlsCfg, err = common.LoadOrGenerateTLSConfig(s.config.TLSCert, s.config.TLSKey)
+	} else {
+		tlsCfg, err = common.GenerateTLSConfig()
 	}
+	if err != nil {
+		return fmt.Errorf("failed to configure TLS: %v", err)
+	}
+
 	// Configure QUIC idle timeout if set
 	var quicCfg *quic.Config
 	if s.config.IdleTimeout > 0 {
-		// Set maximum idle timeout after handshake
 		quicCfg = &quic.Config{MaxIdleTimeout: s.config.IdleTimeout}
 	}
 	listener, err := quic.ListenAddr(s.config.Address, tlsCfg, quicCfg)
@@ -102,6 +126,7 @@ func (s *Server) startQUIC(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to accept connection: %v", err)
 	}
+	defer conn.CloseWithError(0, "")
 	if s.config.Verbose {
 		log.Printf("Accepted QUIC connection from %s", conn.RemoteAddr())
 	}
@@ -116,10 +141,8 @@ func (s *Server) startQUIC(ctx context.Context) error {
 	}
 
 	// Handle the stream until stdin EOF or remote close
-	s.handleConnection(stream)
+	s.handleConnection(stream, &quicStreamHalfCloser{stream: stream})
 
-	// Close QUIC connection gracefully
-	_ = conn.CloseWithError(0, "")
 	return nil
 }
 
@@ -139,12 +162,19 @@ func (s *Server) startTCP(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to accept connection: %v", err)
 	}
+	defer conn.Close()
 	if s.config.Verbose {
 		log.Printf("Accepted TCP connection from %s", conn.RemoteAddr())
 	}
 
 	// Handle connection until stdin EOF or remote close
-	s.handleConnection(conn)
+	// *net.TCPConn implements CloseWrite for half-close on stdin EOF
+	var hc halfCloser
+	if tcpConn, ok := conn.(*net.TCPConn); ok {
+		hc = tcpConn
+	}
+	s.handleConnection(conn, hc)
+
 	return nil
 }
 
@@ -164,11 +194,14 @@ func (s *Server) startUDP(ctx context.Context) error {
 	}
 	// Wrap UDPConn for interactive session; handleConnection will close when done
 	wrapper := &udpConnWrapper{conn: conn}
-	s.handleConnection(wrapper)
+	s.handleConnection(wrapper, nil)
+
 	return nil
 }
 
-func (s *Server) handleConnection(conn io.ReadWriteCloser) {
+// handleConnection manages bidirectional data flow between stdin and the network connection.
+// halfClose is called on stdin EOF to signal the remote side (e.g., TCP FIN or QUIC stream FIN).
+func (s *Server) handleConnection(conn io.ReadWriteCloser, halfClose halfCloser) {
 	if s.config.Verbose {
 		conn = &common.VerboseConn{
 			Conn:    conn,
@@ -192,5 +225,10 @@ func (s *Server) handleConnection(conn io.ReadWriteCloser) {
 		if s.config.Verbose {
 			log.Printf("Error writing to connection: %v", err)
 		}
+	}
+
+	// Half-close: signal EOF to remote side when stdin is done
+	if halfClose != nil {
+		_ = halfClose.CloseWrite()
 	}
 }
