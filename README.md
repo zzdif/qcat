@@ -1,5 +1,5 @@
 > [!WARNING]
-> This repository is experimental and is not fully tested. Use at your own risk—features and behaviors may change or break unexpectedly. 
+> This repository is experimental and is not fully tested. Use at your own risk. Features and behaviors may change or break unexpectedly.
 
 # QCat
 
