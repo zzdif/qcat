@@ -29,7 +29,7 @@ func New(config common.Config) *Server {
 // It records the last client address seen on Read and writes to that address on Write.
 type udpConnWrapper struct {
 	conn       *net.UDPConn
-	mu         sync.RWMutex
+	mu         sync.Mutex
 	clientAddr *net.UDPAddr
 }
 
