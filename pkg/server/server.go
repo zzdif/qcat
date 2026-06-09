@@ -32,9 +32,8 @@ func New(config common.Config) *Server {
 // matching netcat-udp behavior.
 type udpConnWrapper struct {
 	conn       *net.UDPConn
-	mu         sync.Mutex
 	clientAddr *net.UDPAddr
-	mu         sync.Mutex
+	mu         sync.RWMutex
 }
 
 // Read reads a datagram, stores the client address, and returns the payload.
